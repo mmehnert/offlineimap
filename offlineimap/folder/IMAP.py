@@ -58,7 +58,7 @@ class IMAPFolder(BaseFolder):
         return self.accountname
 
     def suggeststhreads(self):
-        return 1
+        return 0
 
     def waitforthread(self):
         self.imapserver.connectionwait()

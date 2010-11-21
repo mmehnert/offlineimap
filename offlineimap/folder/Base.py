@@ -130,6 +130,24 @@ class BaseFolder:
         You must call cachemessagelist() before calling this function!"""
         raise NotImplementedException
 
+    def uidexists(self,uid):
+        """Returns true if uid exists"""
+	mlist = self.getmessagelist()
+	if uid in mlist:
+		return 1
+	else:
+		return 0
+	return 0
+
+    def getmessageuidlist(self):
+        """Gets a list of UIDs.
+        You may have to call cachemessagelist() before calling this function!"""
+	return self.getmessagelist().keys()
+
+    def getmessagecount(self):
+        """Gets the number of messages."""
+        return len(self.getmessagelist().keys())
+
     def getmessage(self, uid):
         """Returns the content of the specified message."""
         raise NotImplementedException
@@ -238,7 +256,7 @@ class BaseFolder:
         and once that succeeds, get the UID, add it to the others for real,
         add it to local for real, and delete the fake one."""
 
-        uidlist = [uid for uid in self.getmessagelist().keys() if uid < 0]
+        uidlist = [uid for uid in self.getmessageuidlist() if uid < 0]
         threads = []
 
         usethread = None
@@ -302,11 +320,10 @@ class BaseFolder:
         them to dest."""
         threads = []
         
-	dest_messagelist = dest.getmessagelist()
-        for uid in self.getmessagelist().keys():
+        for uid in self.getmessageuidlist():
             if uid < 0:                 # Ignore messages that pass 1 missed.
                 continue
-            if not uid in dest_messagelist:
+            if not dest.uidexists(uid):
                 if self.suggeststhreads():
                     self.waitforthread()
                     thread = threadutil.InstanceLimitedThread(\
@@ -329,11 +346,10 @@ class BaseFolder:
         Look for message present in dest but not in self.
         If any, delete them."""
         deletelist = []
-	self_messagelist = self.getmessagelist()
-        for uid in dest.getmessagelist().keys():
+        for uid in dest.getmessageuidlist():
             if uid < 0:
                 continue
-            if not uid in self_messagelist:
+            if not self.uidexists(uid):
                 deletelist.append(uid)
         if len(deletelist):
             self.ui.deletingmessages(deletelist, applyto)
@@ -356,7 +372,7 @@ class BaseFolder:
         addflaglist = {}
         delflaglist = {}
         
-        for uid in self.getmessagelist().keys():
+        for uid in self.getmessageuidlist():
             if uid < 0:                 # Ignore messages missed by pass 1
                 continue
             selfflags = self.getmessageflags(uid)

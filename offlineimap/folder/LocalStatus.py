@@ -19,9 +19,17 @@
 from Base import BaseFolder
 import os, threading
 
+from pysqlite2 import dbapi2 as sqlite
+
 magicline = "OFFLINEIMAP LocalStatus CACHE DATA - DO NOT MODIFY - FORMAT 1"
+newmagicline = "OFFLINEIMAP LocalStatus NOW IN SQLITE, DO NOT MODIFY"
 
 class LocalStatusFolder(BaseFolder):
+    def __deinit__(self):
+        self.save()
+        self.cursor.close()
+        self.connection.close()
+
     def __init__(self, root, name, repository, accountname, config):
         self.name = name
         self.root = root
@@ -30,12 +38,51 @@ class LocalStatusFolder(BaseFolder):
         self.dofsync = config.getdefaultboolean("general", "fsync", True)
         self.filename = os.path.join(root, name)
         self.filename = repository.getfolderfilename(name)
-        self.messagelist = None
+        self.messagelist = {}
         self.repository = repository
         self.savelock = threading.Lock()
         self.doautosave = 1
         self.accountname = accountname
         BaseFolder.__init__(self)
+	self.dbfilename = self.filename + '.sqlite'
+
+	# MIGRATE
+	if os.path.exists(self.filename):
+		self.connection = sqlite.connect(self.dbfilename)
+		self.cursor = self.connection.cursor()
+		self.cursor.execute('CREATE TABLE status (id INTEGER PRIMARY KEY, flags VARCHAR(50))')
+		if self.isnewfolder():
+                    self.messagelist = {}
+	            return
+	        file = open(self.filename, "rt")
+	        self.messagelist = {}
+	        line = file.readline().strip()
+	        assert(line == magicline)
+	        for line in file.xreadlines():
+	            line = line.strip()
+	            uid, flags = line.split(':')
+	            uid = long(uid)
+	            flags = [x for x in flags]
+		    flags.sort()
+	            flags = ''.join(flags)
+	            self.cursor.execute('INSERT INTO status (id,flags) VALUES (?,?)',
+				(uid,flags))
+	        file.close()
+		self.connection.commit()
+		os.rename(self.filename, self.filename + ".old")
+		self.cursor.close()
+		self.connection.close()
+
+	# create new
+	if not os.path.exists(self.dbfilename):
+		self.connection = sqlite.connect(self.dbfilename)
+		self.cursor = self.connection.cursor()
+		self.cursor.execute('CREATE TABLE status (id INTEGER PRIMARY KEY, flags VARCHAR(50))')
+	else:
+		self.connection = sqlite.connect(self.dbfilename)
+		self.cursor = self.connection.cursor()
+
+
 
     def getaccountname(self):
         return self.accountname
@@ -44,7 +91,7 @@ class LocalStatusFolder(BaseFolder):
         return 0
 
     def isnewfolder(self):
-        return not os.path.exists(self.filename)
+        return not os.path.exists(self.dbfilename)
 
     def getname(self):
         return self.name
@@ -60,81 +107,85 @@ class LocalStatusFolder(BaseFolder):
 
     def deletemessagelist(self):
         if not self.isnewfolder():
-            os.unlink(self.filename)
+            self.cursor.close()
+            self.connection.close()
+            os.unlink(self.dbfilename)
 
     def cachemessagelist(self):
-        if self.isnewfolder():
-            self.messagelist = {}
-            return
-        file = open(self.filename, "rt")
-        self.messagelist = {}
-        line = file.readline().strip()
-        if not line and not line.read():
-            # The status file is empty - should not have happened,
-            # but somehow did.
-            file.close()
-            return
-        assert(line == magicline)
-        for line in file.xreadlines():
-            line = line.strip()
-            uid, flags = line.split(':')
-            uid = long(uid)
-            flags = [x for x in flags]
-            self.messagelist[uid] = {'uid': uid, 'flags': flags}
-        file.close()
+        return
 
     def autosave(self):
         if self.doautosave:
             self.save()
 
     def save(self):
-        self.savelock.acquire()
-        try:
-            file = open(self.filename + ".tmp", "wt")
-            file.write(magicline + "\n")
-            for msg in self.messagelist.values():
-                flags = msg['flags']
-                flags.sort()
-                flags = ''.join(flags)
-                file.write("%s:%s\n" % (msg['uid'], flags))
-            file.flush()
-            if self.dofsync:
-                os.fsync(file.fileno())
-            file.close()
-            os.rename(self.filename + ".tmp", self.filename)
-
-            if self.dofsync:
-                fd = os.open(os.path.dirname(self.filename), os.O_RDONLY)
-                os.fsync(fd)
-                os.close(fd)
-
-        finally:
-            self.savelock.release()
+        self.connection.commit()
 
     def getmessagelist(self):
+        if self.isnewfolder():
+            self.messagelist = {}
+            return
+
+        self.messagelist = {}
+        self.cursor.execute('SELECT id,flags from status')
+        for row in self.cursor:
+            flags = [x for x in row[1]]
+            self.messagelist[row[0]] = {'uid': row[0], 'flags': flags}
+
         return self.messagelist
+
+    def uidexists(self,uid):
+        self.cursor.execute('SELECT id FROM status WHERE id=:id',{'id': uid})
+        for row in self.cursor:
+            if(row[0]==uid):
+                return 1
+        return 0
+
+    def getmessageuidlist(self):
+        self.cursor.execute('SELECT id from status')
+        r = []
+        for row in self.cursor:
+            r.append(row[0])
+        return r
+
+    def getmessagecount(self):
+        self.cursor.execute('SELECT count(id) from status');
+        row = self.cursor.fetchone()
+        return row[0]
 
     def savemessage(self, uid, content, flags, rtime):
         if uid < 0:
             # We cannot assign a uid.
             return uid
 
-        if uid in self.messagelist:     # already have it
+        if self.uidexists(uid):     # already have it
             self.savemessageflags(uid, flags)
             return uid
 
         self.messagelist[uid] = {'uid': uid, 'flags': flags, 'time': rtime}
+        flags.sort()
+        flags = ''.join(flags)
+        self.cursor.execute('INSERT INTO status (id,flags) VALUES (?,?)',
+                            (uid,flags))
         self.autosave()
         return uid
 
     def getmessageflags(self, uid):
-        return self.messagelist[uid]['flags']
+        self.cursor.execute('SELECT flags FROM status WHERE id=:id',
+                            {'id': uid})
+        for row in self.cursor:
+            flags = [x for x in row[0]]
+            return flags
+        return flags
 
     def getmessagetime(self, uid):
         return self.messagelist[uid]['time']
 
     def savemessageflags(self, uid, flags):
-        self.messagelist[uid]['flags'] = flags
+        self.messagelist[uid] = {'uid': uid, 'flags': flags}
+        flags.sort()
+        flags = ''.join(flags)
+        self.cursor.execute('UPDATE status SET flags=? WHERE id=?',(flags,uid))
         self.autosave()
 
     def deletemessage(self, uid):
@@ -148,4 +199,5 @@ class LocalStatusFolder(BaseFolder):
 
         for uid in uidlist:
             del(self.messagelist[uid])
-        self.autosave()
+            #if self.uidexists(uid):
+            self.cursor.execute('DELETE FROM status WHERE id=:id', {'id': uid})
