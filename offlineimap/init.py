@@ -189,7 +189,7 @@ class OfflineImap:
                 config.set(section, key, value)
 
         #init the ui, cmd line option overrides config file
-        ui_type = config.getdefault('general','ui', 'TTY.TTYUI')
+        ui_type = config.getdefault('general','ui', 'TTY')
         if options.interface != None:
             ui_type = options.interface
         try:
