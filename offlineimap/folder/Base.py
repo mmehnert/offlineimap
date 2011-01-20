@@ -125,8 +125,15 @@ class BaseFolder:
         memory unless this function is called again."""
         raise NotImplementedException
 
+    def getmessageuidlist(self):
+        """Returns the UIDs of all loaded messages as a list
+
+        You must call cachemessagelist() before calling this function!"""
+        return self.getmessagelist().keys()
+
     def getmessagelist(self):
         """Gets the current message list.
+
         You must call cachemessagelist() before calling this function!"""
         raise NotImplementedException
 
