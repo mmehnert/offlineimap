@@ -119,6 +119,14 @@ class BaseFolder:
     def getuidvalidity(self):
         raise NotImplementedException
 
+    def uidexists(self, uid):
+        """Tests if a message UID exists in the folder
+
+        You must call cachemessagelist() before calling this function!
+        :param uid: a string representing a message uid.
+        :returns: True if yes, False if no."""
+        return uid in self.getmessagelist()
+
     def cachemessagelist(self):
         """Reads the message list from disk or network and stores it in
         memory for later use.  This list will not be re-read from disk or
