@@ -269,7 +269,7 @@ class IMAPFolder(BaseFolder):
         newline += "%s: %s" % (headername, headervalue)
         self.ui.debug('imap', 'savemessage_addheader: newline = ' + repr(newline))
         trailer = content[insertionpoint:]
-        self.ui.debug('imap', 'savemessage_addheader: trailer = ' + repr(trailer))
+#        self.ui.debug('imap', 'savemessage_addheader: trailer = ' + repr(trailer))
         return leader + newline + trailer
 
 
