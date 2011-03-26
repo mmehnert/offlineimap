@@ -21,6 +21,7 @@ from offlineimap.ui import getglobalui
 import os.path
 import re
 import traceback
+import email
 
 class BaseFolder:
     def __init__(self):
@@ -245,7 +246,14 @@ class BaseFolder:
         rtime = self.getmessagetime(uid)
 
         #Save messages to dstfolder and see if a valid UID was returned
-        successuid = dstfolder.savemessage(uid, message, flags, rtime)
+        try:
+            successuid = dstfolder.savemessage(uid, message, flags, rtime)
+        except:
+            tmpmsg=email.message_from_string(message)
+
+            self.ui._msg("Error copying message from %s to %s time %s subject %s" %\
+                 (tmpmsg.get("From"), tmpmsg.get("To"), tmpmsg.get("Date"), tmpmsg.get("Subject")))
+            successuid=-1
 
         #Succeeded? -> IMAP actually assigned a UID
         #If successuid remained negative, no server was willing to assign us
